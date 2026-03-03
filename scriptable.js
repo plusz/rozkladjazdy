@@ -2,6 +2,9 @@
 // Działa z API ZTM Warszawa
 // Uzupełnij własny klucz API w zmiennej API_KEY
 
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 https://dev.orpi.pl
+
 const API_KEY = "TWOJ_API_KEY";
 const STOP_ID = "6089";
 const STOP_NR = "03";
