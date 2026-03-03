@@ -6,6 +6,10 @@ const API_KEY = "TWOJ_API_KEY";
 const STOP_ID = "6089";
 const STOP_NR = "03";
 const LINE = "221";
+// Uzupełnij wartości z pliku .env
+const BUS_URL = `https://api.um.warszawa.pl/api/action/busestrams_get/?resource_id=f2e5503e-927d-4ad3-9500-4ab9e55deb59&line=${LINE}&type=1&apikey=${API_KEY}`;
+const BUS_STOP_LOCATION_LAT = 52.258502354691174;
+const BUS_STOP_LOCATION_LON = 20.971540121324555;
 
 const url = `https://api.um.warszawa.pl/api/action/dbtimetable_get/?id=e923fa0e-d96c-43f9-ae6e-60518c9f3238&busstopId=${STOP_ID}&busstopNr=${STOP_NR}&line=${LINE}&apikey=${API_KEY}`;
 
@@ -14,22 +18,125 @@ async function fetchData() {
   const req = new Request(url);
   const data = await req.loadJSON();
   // data.result to tablica tablic obiektów { key, value }
-  return data.result.map(e =>
-    e.find(x => x.key === "czas").value
+  return data.result
+    .map(entry => {
+      const time = entry.find(x => x.key === "czas")?.value;
+      const brigade = entry.find(x => x.key === "brygada")?.value;
+
+      return {
+        time,
+        brigade
+      };
+    })
+    .filter(item => item.time);
+}
+
+// ---- FUNKCJE ODLEGŁOŚCI AUTOBUSU OD PRZYSTANKU ----
+function toRadians(value) {
+  return value * (Math.PI / 180);
+}
+
+function calculateDistanceInMeters(lat1, lon1, lat2, lon2) {
+  const earthRadius = 6371000;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadius * c;
+}
+
+async function fetchLiveBuses() {
+  const req = new Request(BUS_URL);
+  const data = await req.loadJSON();
+  return Array.isArray(data.result) ? data.result : [];
+}
+
+function selectBusByLineAndBrigade(vehicles, line, brigade) {
+  if (!brigade) return null;
+
+  const matchingVehicles = vehicles.filter(vehicle => {
+    return (
+      String(vehicle.Lines) === String(line) &&
+      String(vehicle.Brigade) === String(brigade)
+    );
+  });
+
+  matchingVehicles.sort((a, b) => {
+    const aTime = new Date(a.Time).getTime();
+    const bTime = new Date(b.Time).getTime();
+    return bTime - aTime;
+  });
+
+  return matchingVehicles[0] || null;
+}
+
+function selectNearestBusByLine(vehicles, line) {
+  const lineVehicles = vehicles.filter(vehicle => {
+    return String(vehicle.Lines) === String(line);
+  });
+
+  lineVehicles.sort((a, b) => {
+    const aDistance = calculateDistanceInMeters(
+      Number(a.Lat),
+      Number(a.Lon),
+      Number(BUS_STOP_LOCATION_LAT),
+      Number(BUS_STOP_LOCATION_LON)
+    );
+    const bDistance = calculateDistanceInMeters(
+      Number(b.Lat),
+      Number(b.Lon),
+      Number(BUS_STOP_LOCATION_LAT),
+      Number(BUS_STOP_LOCATION_LON)
+    );
+
+    return aDistance - bDistance;
+  });
+
+  return lineVehicles[0] || null;
+}
+
+function getBusDistanceFromStopMeters(vehicle) {
+  if (!vehicle) return null;
+
+  return calculateDistanceInMeters(
+    Number(vehicle.Lat),
+    Number(vehicle.Lon),
+    Number(BUS_STOP_LOCATION_LAT),
+    Number(BUS_STOP_LOCATION_LON)
   );
 }
 
+function formatDistance(distanceMeters) {
+  if (distanceMeters === null || Number.isNaN(distanceMeters)) {
+    return "brak danych";
+  }
+
+  if (distanceMeters < 1000) {
+    return `${Math.round(distanceMeters)} m`;
+  }
+
+  return `${(distanceMeters / 1000).toFixed(2)} km`;
+}
+
 // ---- FUNKCJA ZNAJDOWANIA NAJBLIŻSZYCH ODJAZDÓW ----
-function getNextDepartures(times) {
+function getNextDepartures(scheduleEntries) {
   const now = new Date();
   const nowMins = now.getHours() * 60 + now.getMinutes();
 
-  const departures = times.map(t => {
-    const [h, m, s] = t.split(":").map(Number);
+  const departures = scheduleEntries.map(item => {
+    const [h, m] = item.time.split(":").map(Number);
     let mins = h * 60 + m;
     if (mins < nowMins) mins += 24 * 60; // jeśli już po tej godzinie, traktuj jako jutro
     return {
-      time: t,
+      time: item.time,
+      brigade: item.brigade,
       diff: mins - nowMins
     };
   }).sort((a, b) => a.diff - b.diff);
@@ -42,8 +149,8 @@ async function createWidget() {
   const list = new ListWidget();
   list.backgroundColor = new Color("#1c1c1e");
 
-  const times = await fetchData();
-  const next = getNextDepartures(times);
+  const scheduleEntries = await fetchData();
+  const next = getNextDepartures(scheduleEntries);
 
   if (next.length === 0) {
     const title = list.addText(`Linia ${LINE}`);
@@ -59,6 +166,18 @@ async function createWidget() {
 
   const nextBus = next[0];
   const secondBus = next[1];
+  const targetBrigade = nextBus.brigade;
+  let selectedBus = null;
+  let distanceSourceLabel = targetBrigade
+    ? `Brygada ${targetBrigade}`
+    : "Brygada nieznana";
+
+  try {
+    const liveBuses = await fetchLiveBuses();
+    selectedBus = selectBusByLineAndBrigade(liveBuses, LINE, targetBrigade);
+  } catch (error) {
+    selectedBus = null;
+  }
 
   const minutes = Math.round(nextBus.diff);
 
@@ -84,6 +203,14 @@ async function createWidget() {
   const timeText = list.addText(`o ${departureTime}`);
   timeText.font = Font.systemFont(12);
   timeText.textColor = Color.lightGray();
+
+  const distanceMeters = getBusDistanceFromStopMeters(selectedBus);
+  const distanceLabel = formatDistance(distanceMeters);
+  const brigadeText = list.addText(
+    `${distanceSourceLabel}: ${distanceLabel} od przystanku`
+  );
+  brigadeText.font = Font.systemFont(11);
+  brigadeText.textColor = Color.cyan();
 
   list.addSpacer(6);
 
