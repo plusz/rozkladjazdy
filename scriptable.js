@@ -13,6 +13,7 @@ const LINE = "221";
 const BUS_URL = `https://api.um.warszawa.pl/api/action/busestrams_get/?resource_id=f2e5503e-927d-4ad3-9500-4ab9e55deb59&line=${LINE}&type=1&apikey=${API_KEY}`;
 const BUS_STOP_LOCATION_LAT = 52.258502354691174;
 const BUS_STOP_LOCATION_LON = 20.971540121324555;
+const MAX_LIVE_DATA_AGE_SECONDS = 180;
 
 const url = `https://api.um.warszawa.pl/api/action/dbtimetable_get/?id=e923fa0e-d96c-43f9-ae6e-60518c9f3238&busstopId=${STOP_ID}&busstopNr=${STOP_NR}&line=${LINE}&apikey=${API_KEY}`;
 
@@ -116,6 +117,46 @@ function getBusDistanceFromStopMeters(vehicle) {
   );
 }
 
+function parseApiDateTime(value) {
+  if (!value) return null;
+
+  const parsed = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return parsed;
+}
+
+function getVehicleAgeSeconds(vehicle) {
+  if (!vehicle) return null;
+
+  const vehicleDate = parseApiDateTime(vehicle.Time);
+  if (!vehicleDate) return null;
+
+  const ageSeconds = Math.floor((Date.now() - vehicleDate.getTime()) / 1000);
+  return ageSeconds < 0 ? 0 : ageSeconds;
+}
+
+function isVehicleDataFresh(vehicle) {
+  const ageSeconds = getVehicleAgeSeconds(vehicle);
+  if (ageSeconds === null) return false;
+
+  return ageSeconds <= MAX_LIVE_DATA_AGE_SECONDS;
+}
+
+function formatAgeSeconds(ageSeconds) {
+  if (ageSeconds === null || Number.isNaN(ageSeconds)) {
+    return "brak danych";
+  }
+
+  if (ageSeconds < 60) {
+    return `${ageSeconds}s temu`;
+  }
+
+  const minutes = Math.floor(ageSeconds / 60);
+  const seconds = ageSeconds % 60;
+  return `${minutes}m ${seconds}s temu`;
+}
+
 function formatDistance(distanceMeters) {
   if (distanceMeters === null || Number.isNaN(distanceMeters)) {
     return "brak danych";
@@ -182,6 +223,9 @@ async function createWidget() {
     selectedBus = null;
   }
 
+  const vehicleAgeSeconds = getVehicleAgeSeconds(selectedBus);
+  const hasFreshVehicleData = isVehicleDataFresh(selectedBus);
+
   const minutes = Math.round(nextBus.diff);
 
   // Kolor zależny od czasu
@@ -207,13 +251,23 @@ async function createWidget() {
   timeText.font = Font.systemFont(12);
   timeText.textColor = Color.lightGray();
 
-  const distanceMeters = getBusDistanceFromStopMeters(selectedBus);
+  const distanceMeters = hasFreshVehicleData
+    ? getBusDistanceFromStopMeters(selectedBus)
+    : null;
   const distanceLabel = formatDistance(distanceMeters);
   const brigadeText = list.addText(
-    `${distanceSourceLabel}: ${distanceLabel} od przystanku`
+    `${distanceSourceLabel}: ${distanceLabel} od przystanku (linia prosta)`
   );
   brigadeText.font = Font.systemFont(11);
-  brigadeText.textColor = Color.cyan();
+  brigadeText.textColor = hasFreshVehicleData ? Color.cyan() : Color.orange();
+
+  const gpsLagText = list.addText(
+    `GPS: ${formatAgeSeconds(vehicleAgeSeconds)}${
+      hasFreshVehicleData ? "" : " • dane opóźnione"
+    }`
+  );
+  gpsLagText.font = Font.systemFont(10);
+  gpsLagText.textColor = Color.lightGray();
 
   list.addSpacer(6);
 

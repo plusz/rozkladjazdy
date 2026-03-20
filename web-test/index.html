@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZTM Bus Debug Playground</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <h1>ZTM Debug Playground</h1>
+        <p>
+          Podgląd: rozkład + live pozycja autobusu + mapka. Konfigurację ustaw w
+          <code>web-test/app.js</code>.
+        </p>
+      </header>
+
+      <section class="controls">
+        <button id="refreshBtn">Odśwież dane</button>
+        <span id="updatedAt">Nie odświeżono jeszcze</span>
+      </section>
+
+      <section class="status-grid">
+        <article class="card">
+          <h2>Najbliższy odjazd</h2>
+          <p id="nextDeparture">-</p>
+        </article>
+        <article class="card">
+          <h2>Brygada z rozkładu</h2>
+          <p id="targetBrigade">-</p>
+        </article>
+        <article class="card">
+          <h2>Dystans (linia prosta)</h2>
+          <p id="distanceValue">-</p>
+        </article>
+        <article class="card">
+          <h2>Wiek GPS</h2>
+          <p id="gpsAge">-</p>
+        </article>
+        <article class="card">
+          <h2>Trend zbliżania</h2>
+          <p id="distanceTrend">-</p>
+        </article>
+      </section>
+
+      <section class="map-wrap">
+        <div id="map"></div>
+      </section>
+
+      <section class="history-wrap">
+        <article class="card log-card">
+          <h2>Historia ostatnich próbek (max 10)</h2>
+          <pre id="historyLog"></pre>
+        </article>
+      </section>
+
+      <section class="logs">
+        <article class="card log-card">
+          <h2>Log API: rozkład (<code>dbtimetable_get</code>)</h2>
+          <pre id="scheduleLog"></pre>
+        </article>
+        <article class="card log-card">
+          <h2>Log API: pozycje live (<code>busestrams_get</code>)</h2>
+          <pre id="liveLog"></pre>
+        </article>
+        <article class="card log-card">
+          <h2>Log: pojazd wybrany do mapowania</h2>
+          <pre id="selectedLog"></pre>
+        </article>
+      </section>
+    </main>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
